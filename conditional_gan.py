@@ -1,4 +1,4 @@
-from re import A
+from re import A, M
 from tensorflow import keras
 from tensorflow.keras import layers
 
@@ -8,6 +8,7 @@ import numpy as np
 import imageio
 import os
 import glob
+from skimage.transform import resize
 
 def read_images(dir):
     working_dir = os.curdir + dir
@@ -20,13 +21,14 @@ def read_images(dir):
         out_labels.append(int(os.path.basename(os.path.dirname(filename))))
     return np.asarray(out), np.asarray(out_labels)
 
-batch_size = 32
+batch_size = 128
 num_channels = 3
 num_classes = 6
 image_size = 64
-latent_dim = 128
+latent_dim = 256
 EPOCHS = 200
 
+WEIGHT_INIT = tf.keras.initializers.RandomNormal(mean=0.0, stddev=0.02) 
 
 
 # We'll use all the available examples from both the training and test
@@ -65,31 +67,36 @@ print(generator_in_channels, discriminator_in_channels)
 discriminator = keras.Sequential(
     [
         keras.layers.InputLayer((image_size, image_size, discriminator_in_channels)),
-        layers.Conv2D(64, (3, 3), strides=(2, 2), padding="same"),
+        layers.Conv2D(64, (4, 4), strides=(2, 2), padding="same"),
+        layers.BatchNormalization(),
         layers.LeakyReLU(alpha=0.2),
-        layers.Conv2D(128, (3, 3), strides=(2, 2), padding="same"),
+        layers.Conv2D(128, (4, 4), strides=(2, 2), padding="same"),
+        layers.BatchNormalization(),
         layers.LeakyReLU(alpha=0.2),
-        layers.GlobalMaxPooling2D(),
-        layers.Dense(1),
+        layers.Conv2D(256, (4, 4), strides=(2, 2), padding="same"),
+        layers.BatchNormalization(),
+        layers.LeakyReLU(alpha=0.2),
+        layers.Flatten(),
+        layers.Dropout(0.3),
+        layers.Dense(1, activation="sigmoid"),
     ],
     name="discriminator",
 )
 
 # Create the generator.
-gen_start_dim = image_size // 4
+
 generator = keras.Sequential(
     [
         keras.layers.InputLayer((generator_in_channels,)),
         # We want to generate 128 + num_classes coefficients to reshape into a
         # 7x7x(128 + num_classes) map.
-        layers.Dense(gen_start_dim * gen_start_dim * generator_in_channels),
-        layers.LeakyReLU(alpha=0.2),
-        layers.Reshape((gen_start_dim, gen_start_dim, generator_in_channels)),
-        layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same"),
-        layers.LeakyReLU(alpha=0.2),
-        layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding="same"),
-        layers.LeakyReLU(alpha=0.2),
-        layers.Conv2D(num_channels, (gen_start_dim, gen_start_dim), padding="same", activation="sigmoid"),
+        layers.Dense(8 * 8 * generator_in_channels),
+        layers.Reshape((8, 8, generator_in_channels)),
+        layers.Conv2DTranspose(128, (4, 4), strides=(2, 2), padding='same', use_bias=False, kernel_initializer=WEIGHT_INIT),
+        layers.ReLU(),
+        layers.Conv2DTranspose(64, (4, 4), strides=(2, 2), padding='same', use_bias=False,kernel_initializer=WEIGHT_INIT),
+        layers.ReLU(),
+        layers.Conv2DTranspose(num_channels, (4, 4), strides=(2, 2), padding='same', use_bias=False, activation='tanh')
     ],
     name="generator",
 )
@@ -147,8 +154,12 @@ class ConditionalGAN(keras.Model):
         )
 
         # Assemble labels discriminating real from fake images.
+        # add trick!
+        #real_labels = tf.ones((batch_size, 1))
+        #real_labels += 0.9 * tf.random.uniform(tf.shape(int64(batch_size,1))
         labels = tf.concat(
             [tf.ones((batch_size, 1)), tf.zeros((batch_size, 1))], axis=0
+            #[real_labels, tf.zeros((batch_size, 1))], axis=0
         )
 
         # Train the discriminator.
@@ -196,9 +207,9 @@ cond_gan.compile(
     loss_fn=keras.losses.BinaryCrossentropy(from_logits=True),
 )
 
-cond_gan.fit(dataset, epochs=EPOCHS)
-cond_gan.save_weights("ckpt")
-#load_status = cond_gan.load_weights("ckpt")
+#cond_gan.fit(dataset, epochs=EPOCHS)
+#cond_gan.save_weights("ckpt")
+load_status = cond_gan.load_weights("ckpt")
 
 # We first extract the trained generator from our Conditiona GAN.
 trained_gen = cond_gan.generator
@@ -232,6 +243,16 @@ def interpolate_class(first_number, second_number):
     fake = trained_gen.predict(noise_and_labels)
     return fake
 
+def make_animation():
+  anim_file = './cond_gan.gif'
+
+  with imageio.get_writer(anim_file, mode='I') as writer:
+    filenames = glob.glob('./generated*.png')
+    filenames = sorted(filenames)
+    for filename in filenames:
+      image = imageio.imread(filename)
+      image = resize(image, (256, 256), order=0)
+      writer.append_data(image)
 
 start_class = 0  # @param {type:"slider", min:0, max:9, step:1}
 end_class = 5  # @param {type:"slider", min:0, max:9, step:1}
@@ -240,6 +261,20 @@ fake_images = interpolate_class(start_class, end_class)
 
 
 fake_images *= 255.0
+#converted_images = fake_images.astype(np.uint8)
+#converted_images = tf.image.resize(converted_images, (128, 128)).numpy().astype(np.uint8)
+
 converted_images = fake_images.astype(np.uint8)
-converted_images = tf.image.resize(converted_images, (128, 128)).numpy().astype(np.uint8)
-imageio.mimsave("animation.gif", converted_images, fps=1)
+for i in range(len(fake_images)):
+  generated_image = converted_images[i]
+
+  fig = plt.figure(figsize=(1,1), dpi=image_size*3)
+  plt.imshow(generated_image)
+  plt.axis('off')
+  plt.savefig('generated'+str(i)+'.png')
+  plt.close(fig)
+#imageio.mimsave("animation.gif", converted_images, fps=1)
+make_animation()
+
+
+
