@@ -17,7 +17,6 @@ def read_images(dir):
     for filename in glob.glob('.\imgs/**/*.jpg', recursive=True): # open in readonly mode
         img = imageio.imread(filename)
         out.append(np.asarray(img))
-        # print(int(os.path.basename(os.path.dirname(filename))))
         out_labels.append(int(os.path.basename(os.path.dirname(filename))))
     return np.asarray(out), np.asarray(out_labels)
 
@@ -33,22 +32,15 @@ WEIGHT_INIT = tf.keras.initializers.RandomNormal(mean=0.0, stddev=0.02)
 
 # We'll use all the available examples from both the training and test
 # sets.
-# (x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
-# print(x_train.shape)
-# print(y_train.shape)
+
 x_train, y_train = read_images("/imgs/train/")
-print(x_train.shape)
-print(y_train.shape)
 
-
-#all_digits = np.concatenate([x_train])
 all_digits = x_train
 all_labels = y_train
-print(all_labels)
 # Scale the pixel values to [0, 1] range, add a channel dimension to
 # the images, and one-hot encode the labels.
-all_digits = all_digits.astype("float32") / 255.0
-all_digits = np.reshape(all_digits, (-1, image_size, image_size, num_channels))
+all_digits = (all_digits - 127.5) / 127.5
+all_digits = np.reshape(all_digits, (-1, image_size, image_size, num_channels)).astype('float32')
 all_labels = keras.utils.to_categorical(all_labels, 6)
 
 # Create tf.data.Dataset.
@@ -216,7 +208,7 @@ trained_gen = cond_gan.generator
 
 # Choose the number of intermediate images that would be generated in
 # between the interpolation + 2 (start and last images).
-num_interpolation = 9  # @param {type:"integer"}
+num_interpolation = 10  # @param {type:"integer"}
 
 # Sample noise for the interpolation.
 interpolation_noise = tf.random.normal(shape=(1, latent_dim))
@@ -245,33 +237,31 @@ def interpolate_class(first_number, second_number):
 
 def make_animation():
   anim_file = './cond_gan.gif'
-
+  fps=5
   with imageio.get_writer(anim_file, mode='I') as writer:
-    filenames = glob.glob('./generated*.png')
+    filenames = glob.glob('./cond_gan_output/generated*.png')
     filenames = sorted(filenames)
     for filename in filenames:
       image = imageio.imread(filename)
-      image = resize(image, (256, 256), order=0)
-      writer.append_data(image)
+      image = resize(image, (128, 128), order=0)
+      for _ in range(fps):
+        writer.append_data(image)
 
-start_class = 0  # @param {type:"slider", min:0, max:9, step:1}
-end_class = 5  # @param {type:"slider", min:0, max:9, step:1}
+start_class = 1  # @param {type:"slider", min:0, max:9, step:1}
+end_class = 3  # @param {type:"slider", min:0, max:9, step:1}
 
 fake_images = interpolate_class(start_class, end_class)
 
 
-fake_images *= 255.0
-#converted_images = fake_images.astype(np.uint8)
-#converted_images = tf.image.resize(converted_images, (128, 128)).numpy().astype(np.uint8)
 
-converted_images = fake_images.astype(np.uint8)
+converted_images = fake_images
 for i in range(len(fake_images)):
-  generated_image = converted_images[i]
+  generated_image = (converted_images[i, :, :, :] * 127.5 + 127.5) / 255.
 
-  fig = plt.figure(figsize=(1,1), dpi=image_size*3)
+  fig = plt.figure(figsize=(1,1), dpi=image_size*2)
   plt.imshow(generated_image)
   plt.axis('off')
-  plt.savefig('generated'+str(i)+'.png')
+  plt.savefig('./cond_gan_output/generated'+str(i)+'.png')
   plt.close(fig)
 #imageio.mimsave("animation.gif", converted_images, fps=1)
 make_animation()
