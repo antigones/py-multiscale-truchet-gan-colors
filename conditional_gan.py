@@ -35,19 +35,19 @@ WEIGHT_INIT = tf.keras.initializers.RandomNormal(mean=0.0, stddev=0.02)
 
 x_train, y_train = read_images("/imgs/train/")
 
-all_digits = x_train
+all_samples = x_train
 all_labels = y_train
-# Scale the pixel values to [0, 1] range, add a channel dimension to
+# Scale the pixel values to [-1, 1] range, add a channel dimension to
 # the images, and one-hot encode the labels.
-all_digits = (all_digits - 127.5) / 127.5
-all_digits = np.reshape(all_digits, (-1, image_size, image_size, num_channels)).astype('float32')
+all_samples = (all_samples - 127.5) / 127.5
+all_samples = np.reshape(all_samples, (-1, image_size, image_size, num_channels)).astype('float32')
 all_labels = keras.utils.to_categorical(all_labels, 6)
 
 # Create tf.data.Dataset.
-dataset = tf.data.Dataset.from_tensor_slices((all_digits, all_labels))
+dataset = tf.data.Dataset.from_tensor_slices((all_samples, all_labels))
 dataset = dataset.shuffle(buffer_size=1024).batch(batch_size)
 
-print(f"Shape of training images: {all_digits.shape}")
+print(f"Shape of training images: {all_samples.shape}")
 print(f"Shape of training labels: {all_labels.shape}")
 
 generator_in_channels = latent_dim + num_classes
@@ -146,12 +146,9 @@ class ConditionalGAN(keras.Model):
         )
 
         # Assemble labels discriminating real from fake images.
-        # add trick!
-        #real_labels = tf.ones((batch_size, 1))
-        #real_labels += 0.9 * tf.random.uniform(tf.shape(int64(batch_size,1))
         labels = tf.concat(
             [tf.ones((batch_size, 1)), tf.zeros((batch_size, 1))], axis=0
-            #[real_labels, tf.zeros((batch_size, 1))], axis=0
+      
         )
 
         # Train the discriminator.
